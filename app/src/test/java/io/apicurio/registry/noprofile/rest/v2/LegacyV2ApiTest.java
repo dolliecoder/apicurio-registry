@@ -10,6 +10,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import io.apicurio.registry.storage.RegistryStorage;
+import io.apicurio.registry.cdi.Current;
+import jakarta.inject.Inject;
+
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.CoreMatchers.anything;
 import static org.hamcrest.Matchers.equalTo;
@@ -19,6 +23,10 @@ import static org.hamcrest.Matchers.equalToObject;
 public class LegacyV2ApiTest extends AbstractResourceTestBase {
 
     private static final String GROUP = "LegacyV2ApiTest";
+
+    @Inject
+    @Current
+    RegistryStorage storage;
 
     @Test
     public void testLegacyLabels() throws Exception {
@@ -228,6 +236,68 @@ public class LegacyV2ApiTest extends AbstractResourceTestBase {
                         equalTo("2.0.0"))
                 .body("artifacts.find { it.id == '" + artifactId + "' }.description",
                         equalTo("Second version"));
+    }
+
+    @Test
+    public void testExportImport() throws Exception {
+        // Delete all data
+        storage.deleteAllUserData();
+
+        String groupId = "PrimaryTestGroup";
+        String complexGroupId = "Group/With\"And Spaces + Plus";
+        String complexArtifactId = "Artifact/With\"And Spaces + Plus";
+        String artifactContent = resourceToString("openapi-empty.json");
+
+        // Create standard artifact
+        this.createArtifact(groupId, "TestArtifact-1", ArtifactType.OPENAPI, artifactContent, ContentTypes.APPLICATION_JSON);
+
+        // Create complex artifact
+        this.createArtifact(complexGroupId, complexArtifactId, ArtifactType.OPENAPI, artifactContent, ContentTypes.APPLICATION_JSON);
+
+        // Create default group artifact
+        this.createArtifact("default", "DefaultGroupArtifact", ArtifactType.OPENAPI, artifactContent, ContentTypes.APPLICATION_JSON);
+
+        // Export data via REST Assured (v2 export is unsupported, so we export via v3 and import via v2)
+        java.io.InputStream exportStream = given()
+            .when()
+            .get("/registry/v3/admin/export")
+            .then()
+            .statusCode(200)
+            .extract().asInputStream();
+        
+        java.io.File tempFile = java.io.File.createTempFile("v2-export-", ".zip");
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
+            exportStream.transferTo(fos);
+        }
+
+        // Delete all data again
+        storage.deleteAllUserData();
+        storage.resetGlobalId();
+        storage.resetContentId();
+        storage.resetCommentId();
+
+        // Import data via REST Assured
+        given()
+            .when()
+            .contentType("application/zip")
+            .body(tempFile)
+            .post("/registry/v2/admin/import")
+            .then()
+            .statusCode(204);
+
+        // Assert standard artifact
+        given().when().pathParam("groupId", groupId).pathParam("artifactId", "TestArtifact-1")
+            .get("/registry/v2/groups/{groupId}/artifacts/{artifactId}/meta").then().statusCode(200);
+
+        // Assert complex artifact
+        given().when().pathParam("groupId", complexGroupId).pathParam("artifactId", complexArtifactId)
+            .get("/registry/v2/groups/{groupId}/artifacts/{artifactId}/meta").then().statusCode(200);
+
+        // Assert default group artifact
+        given().when().pathParam("groupId", "default").pathParam("artifactId", "DefaultGroupArtifact")
+            .get("/registry/v2/groups/{groupId}/artifacts/{artifactId}/meta").then().statusCode(200);
+            
+        java.nio.file.Files.deleteIfExists(tempFile.toPath());
     }
 
 }

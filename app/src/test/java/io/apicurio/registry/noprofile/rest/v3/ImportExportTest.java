@@ -67,8 +67,8 @@ public class ImportExportTest extends AbstractResourceTestBase {
          */
 
         String groupId = "PrimaryTestGroup";
-        String complexGroupId = "Group/With\"And Spaces";
-        String complexArtifactId = "Artifact/With\"And Spaces";
+        String complexGroupId = "Group/With\"And Spaces + Plus";
+        String complexArtifactId = "Artifact/With\"And Spaces + Plus";
 
         // Create the group
         CreateGroup createGroup = new CreateGroup();
@@ -112,6 +112,9 @@ public class ImportExportTest extends AbstractResourceTestBase {
         createComplexGroup.setDescription("A group with a complex ID.");
         clientV3.groups().post(createComplexGroup);
         createArtifact(complexGroupId, complexArtifactId, ArtifactType.JSON, "{}", ContentTypes.APPLICATION_JSON);
+
+        // Add an artifact to the explicit "default" group
+        createArtifact("default", "DefaultGroupArtifact", ArtifactType.JSON, "{}", ContentTypes.APPLICATION_JSON);
 
         // Set artifact metadata
         for (int idx = 1; idx <= 10; idx++) {
@@ -226,13 +229,14 @@ public class ImportExportTest extends AbstractResourceTestBase {
         GroupSearchResults groups = clientV3.groups().get(config -> {
             config.queryParameters.orderby = GroupSortBy.GroupId;
         });
-        Assertions.assertEquals(2, groups.getCount());
-        Assertions.assertEquals("PrimaryTestGroup", groups.getGroups().get(0).getGroupId());
+        Assertions.assertEquals(3, groups.getCount());
+        Assertions.assertEquals("Group/With\"And Spaces + Plus", groups.getGroups().get(0).getGroupId());
+        Assertions.assertEquals("PrimaryTestGroup", groups.getGroups().get(1).getGroupId());
         Assertions.assertEquals("The group for the export/import test.",
-                groups.getGroups().get(0).getDescription());
-        Assertions.assertEquals("SecondaryTestGroup", groups.getGroups().get(1).getGroupId());
-        Assertions.assertEquals("Another test group that is empty.",
                 groups.getGroups().get(1).getDescription());
+        Assertions.assertEquals("SecondaryTestGroup", groups.getGroups().get(2).getGroupId());
+        Assertions.assertEquals("Another test group that is empty.",
+                groups.getGroups().get(2).getDescription());
 
         // TODO: check group labels (not returned by group search)
 
@@ -272,6 +276,11 @@ public class ImportExportTest extends AbstractResourceTestBase {
         amd = clientV3.groups().byGroupId(complexGroupId).artifacts().byArtifactId(complexArtifactId).get();
         Assertions.assertEquals(complexGroupId, amd.getGroupId());
         Assertions.assertEquals(complexArtifactId, amd.getArtifactId());
+
+        // Assert default group artifact
+        amd = clientV3.groups().byGroupId("default").artifacts().byArtifactId("DefaultGroupArtifact").get();
+        Assertions.assertNull(amd.getGroupId());
+        Assertions.assertEquals("DefaultGroupArtifact", amd.getArtifactId());
 
         // Assert versions
         for (int idx = 1; idx <= 10; idx++) {
